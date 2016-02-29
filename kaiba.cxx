@@ -1042,7 +1042,7 @@ void symmetric_registration(SHORTIM &aimpil, const char *bfile, const char *ffil
       fimpil.v= resliceImage(fim, dimf, PILbraincloud_dim, invT, LIN);
       set_dim(fimpil, PILbraincloud_dim);
       sprintf(PILbraincloud_hdr.descrip,"Created by ART's KAIBA module");
-      sprintf(filename,"r%s.nii",fprefix);
+      sprintf(filename,"%s_PIL.nii",fprefix);
       save_nifti_image(filename, fimpil.v, &PILbraincloud_hdr);
       free(invT);
 
@@ -1050,7 +1050,7 @@ void symmetric_registration(SHORTIM &aimpil, const char *bfile, const char *ffil
       bimpil.v = resliceImage(bim, dimb, PILbraincloud_dim, invT, LIN);
       set_dim(bimpil, PILbraincloud_dim);
       sprintf(PILbraincloud_hdr.descrip,"Created by ART's KAIBA module");
-      sprintf(filename,"r%s.nii",bprefix);
+      sprintf(filename,"%s_PIL.nii",bprefix);
       save_nifti_image(filename, bimpil.v, &PILbraincloud_hdr);
       free(invT);
 
@@ -1145,8 +1145,12 @@ void compute_lm_transformation(char *lmfile, SHORTIM im, float *A)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void find_roi(SHORTIM subim, nifti_1_header *subimhdr,SHORTIM pilim, float pilT[],const char *side, const char *opprefix)
+void find_roi(nifti_1_header *subimhdr, SHORTIM pilim, float pilT[],const char *side, const char *prefix)
 {
+   DIM subdim;
+
+   set_dim(subdim, subimhdr);
+
    // these are stored in $ARTHOME/<side>.nii file as hdr.dim[5,6,7]
    int imin;
    int jmin;
@@ -1175,16 +1179,10 @@ void find_roi(SHORTIM subim, nifti_1_header *subimhdr,SHORTIM pilim, float pilT[
    compute_lm_transformation(filename, pilim, hcT);
    multi(hcT,4,4, pilT, 4,4, hcT);
 
-   //sprintf(filename,"%s_%s.mrx",opprefix,side);
+   //sprintf(filename,"%s_%s.mrx",prefix,side);
    //fp=fopen(filename,"w");
    //printMatrix(hcT,4,4,"",fp);
    //fclose(fp);
-
-   float *invT;
-   invT = inv4(hcT);
-   hcim.v = resliceImage(subim.v, subim.nx, subim.ny, subim.nz, subim.dx, subim.dy, subim.dz,
-   hcim.nx, hcim.ny, hcim.nz, hcim.dx, hcim.dy, hcim.dz, invT, LIN);
-   free(invT);
 
    ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1215,9 +1213,9 @@ void find_roi(SHORTIM subim, nifti_1_header *subimhdr,SHORTIM pilim, float pilT[
       float T[16];
 
       if( side[0]=='r')
-         sprintf(filename,"%s_RHROI.nii",opprefix);
+         sprintf(filename,"%s_RHROI.nii",prefix);
       if( side[0]=='l')
-         sprintf(filename,"%s_LHROI.nii",opprefix);
+         sprintf(filename,"%s_LHROI.nii",prefix);
 
       for(int n=0; n<hcim.nv; n++) stndrd_roi[n] = 0;
 
@@ -1231,7 +1229,7 @@ void find_roi(SHORTIM subim, nifti_1_header *subimhdr,SHORTIM pilim, float pilT[
       for(int i=0; i<16; i++) T[i]=hcT[i];
 
       ntv_spc_roi = resliceImage(stndrd_roi, hcim.nx, hcim.ny, hcim.nz, hcim.dx, hcim.dy, hcim.dz,
-      subim.nx, subim.ny, subim.nz, subim.dx, subim.dy, subim.dz, T, LIN);
+      subdim.nx, subdim.ny, subdim.nz, subdim.dx, subdim.dy, subdim.dz, T, LIN);
 
       save_nifti_image(filename, ntv_spc_roi, subimhdr);
 
@@ -1476,7 +1474,7 @@ double compute_hi(char *imfile, char *roifile)
 
 int main(int argc, char **argv)
 {
-   char cmnd[1024]="";  // to stores the command to run with system
+   char cmnd[1024]=""; // stores the command to run with system
    opt_ppm=YES;
    opt_txt=NO;
 
@@ -1506,7 +1504,7 @@ int main(int argc, char **argv)
       switch (opt) 
       {
          case 'V':
-            printf("KAIBA Version 1.0 released Oct. 29, 2015.\n");
+            printf("KAIBA Version 2.0 released March 1, 2016.\n");
             printf("Author: Babak A. Ardekani, Ph.D.\n");
             exit(0);
          case 'v':
@@ -1546,7 +1544,6 @@ int main(int argc, char **argv)
       printf("Please specify an output prefix using -p argument.\n");
       exit(0);
    }
-
 
    //////////////////////////////////////////////////////////////////////////////////
    // Receive input image filenames and deteremine their prefix
@@ -1596,30 +1593,69 @@ int main(int argc, char **argv)
       if( niftiFilename(bprefix, bfile)==0 ) exit(0);
       if( niftiFilename(fprefix, ffile)==0 ) exit(0);
 
-      symmetric_registration(aimpil, bfile,ffile,blmfile,flmfile,opt_v);
+      symmetric_registration(aimpil, bfile, ffile, blmfile, flmfile, opt_v);
 
-      set_to_I(pilT, 4);
+      ///////////////////////////////////////////////////////////////////////////////////////////////
+      // processing baseline image
+      ///////////////////////////////////////////////////////////////////////////////////////////////
+      SHORTIM bim; // baseline image
+      nifti_1_header bim_hdr;  // baseline image NIFTI header
 
-      find_roi(aimpil,&PILbraincloud_hdr, aimpil, pilT, "lhc3", opprefix);
-      find_roi(aimpil,&PILbraincloud_hdr, aimpil, pilT, "rhc3", opprefix);
+      bim.v = (short *)read_nifti_image(bfile, &bim_hdr);
 
-      sprintf(roifile,"%s_RHROI.nii",opprefix);
-      sprintf(filename,"r%s.nii",bprefix);
-      hi=compute_hi(filename, roifile);
-      fprintf(fp,"%s, %s, %lf\n",filename ,roifile,hi);
+      if(bim.v==NULL)
+      {
+         printf("Error reading %s, aborting ...\n", bfile);
+         exit(1);
+      }
 
-      sprintf(filename,"r%s.nii",fprefix);
-      hi=compute_hi(filename, roifile);
-      fprintf(fp,"%s, %s, %lf\n",filename ,roifile,hi);
+      sprintf(filename,"%s_PIL.mrx",bprefix);
+      loadTransformation(filename, pilT);
 
-      sprintf(roifile,"%s_LHROI.nii",opprefix);
-      sprintf(filename,"r%s.nii",bprefix);
-      hi=compute_hi(filename, roifile);
-      fprintf(fp,"%s, %s, %lf\n",filename ,roifile,hi);
+      find_roi(&bim_hdr, aimpil, pilT, "lhc3", bprefix);
+      find_roi(&bim_hdr, aimpil, pilT, "rhc3", bprefix);
 
-      sprintf(filename,"r%s.nii",fprefix);
-      hi=compute_hi(filename, roifile);
-      fprintf(fp,"%s, %s, %lf\n",filename ,roifile,hi);
+      free(bim.v);
+
+      sprintf(roifile,"%s_RHROI.nii",bprefix);
+      hi=compute_hi(bfile, roifile);
+      fprintf(fp,"%s, %s, %lf\n",bfile,roifile,hi);
+
+      sprintf(roifile,"%s_LHROI.nii",bprefix);
+      hi=compute_hi(bfile, roifile);
+      fprintf(fp,"%s, %s, %lf\n",bfile,roifile,hi);
+      ///////////////////////////////////////////////////////////////////////////////////////////////
+
+      ///////////////////////////////////////////////////////////////////////////////////////////////
+      // processing followup image
+      ///////////////////////////////////////////////////////////////////////////////////////////////
+      SHORTIM fim; // followup image
+      nifti_1_header fim_hdr;  // followup image NIFTI header
+
+      fim.v = (short *)read_nifti_image(ffile, &fim_hdr);
+
+      if(fim.v==NULL)
+      {
+         printf("Error reading %s, aborting ...\n", ffile);
+         exit(1);
+      }
+
+      sprintf(filename,"%s_PIL.mrx",fprefix);
+      loadTransformation(filename, pilT);
+
+      find_roi(&fim_hdr, aimpil, pilT, "lhc3", fprefix);
+      find_roi(&fim_hdr, aimpil, pilT, "rhc3", fprefix);
+
+      free(fim.v);
+
+      sprintf(roifile,"%s_RHROI.nii",fprefix);
+      hi=compute_hi(ffile, roifile);
+      fprintf(fp,"%s, %s, %lf\n",ffile,roifile,hi);
+
+      sprintf(roifile,"%s_LHROI.nii",fprefix);
+      hi=compute_hi(ffile, roifile);
+      fprintf(fp,"%s, %s, %lf\n",ffile,roifile,hi);
+      ///////////////////////////////////////////////////////////////////////////////////////////////
 
       delete aimpil.v;
    }
@@ -1675,17 +1711,19 @@ int main(int argc, char **argv)
       free(invT);
 
       sprintf(PILbraincloud_hdr.descrip,"Created by ART's KAIBA module");
-      sprintf(filename,"r%s.nii",bprefix);
+      sprintf(filename,"%s_PIL.nii",bprefix);
       save_nifti_image(filename, bimpil.v, &PILbraincloud_hdr);
 
-      find_roi(bim, &bhdr, bimpil, bTPIL, "lhc3", opprefix);
-      find_roi(bim, &bhdr, bimpil, bTPIL, "rhc3", opprefix);
+      find_roi(&bhdr, bimpil, bTPIL, "lhc3", bprefix);
+      find_roi(&bhdr, bimpil, bTPIL, "rhc3", bprefix);
 
-      sprintf(roifile,"%s_RHROI.nii",opprefix);
+      delete bimpil.v;
+
+      sprintf(roifile,"%s_RHROI.nii",bprefix);
       hi=compute_hi(bfile, roifile);
       fprintf(fp,"%s, %s, %lf\n",bfile,roifile,hi);
 
-      sprintf(roifile,"%s_LHROI.nii",opprefix);
+      sprintf(roifile,"%s_LHROI.nii",bprefix);
       hi=compute_hi(bfile, roifile);
       fprintf(fp,"%s, %s, %lf\n",bfile,roifile,hi);
    }
