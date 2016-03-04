@@ -906,6 +906,7 @@ void symmetric_registration(SHORTIM &aimpil, const char *bfile, const char *ffil
 #endif
    
    {
+      double relative_change;
       double mincost, oldmincost, cost;
       double (*cost_function)(float *T, DIM dimb, DIM dimf, float *sclbim, float *sclfim,short *bmsk, short *fmsk);
       float P[6];
@@ -971,20 +972,41 @@ void symmetric_registration(SHORTIM &aimpil, const char *bfile, const char *ffil
             }
          }
 
+         if(oldmincost != 0.0)
+         {
+           relative_change=(oldmincost-mincost)/fabs(oldmincost);
+         }
+         else
+         {
+           relative_change=0.0;
+         }
+
          if(verbose)
          {
             printf("Cost = %f\n", mincost);
-            printf("Relative change = %3.1e x 100%\n", (oldmincost-mincost)/fabs(oldmincost));
+            printf("Relative change = %3.1e x 100%\n", relative_change );
          }
    
-         if( oldmincost==0.0 || (oldmincost-mincost)/fabs(oldmincost) <= TOLERANCE )
+         if( oldmincost==0.0 || relative_change <= TOLERANCE )
             break;
          else
             oldmincost = mincost;
       }
 
       set_transformation(P[0], P[1], P[2], P[3], P[4], P[5], "ZXYT", Tinter);
-      sqrt_matrix(Tinter, sqrtTinter, invsqrtTinter);
+
+      if( Tinter[0]!=1.0 || Tinter[1]!=0.0 || Tinter[2]!=0.0 || Tinter[3]!=0.0 ||
+      Tinter[4]!=0.0 || Tinter[5]!=1.0 || Tinter[6]!=0.0 || Tinter[7]!=0.0 ||
+      Tinter[8]!=0.0 || Tinter[9]!=0.0 || Tinter[10]!=1.0 || Tinter[11]!=0.0 ||
+      Tinter[12]!=0.0 || Tinter[13]!=0.0 || Tinter[14]!=0.0 || Tinter[15]!=1.0)
+      {
+         // Tinter does not equal identity matrix
+         sqrt_matrix(Tinter, sqrtTinter, invsqrtTinter);
+      }
+      {
+         // Tinter equals identity matrix
+         for(int i=0; i<16; i++) sqrtTinter[i]=invsqrtTinter[i]=Tinter[i];
+      }
       multi(sqrtTinter, 4, 4,  fTPIL, 4,  4, Tf);
       multi(invsqrtTinter, 4, 4,  bTPIL, 4,  4, Tb);
    }
